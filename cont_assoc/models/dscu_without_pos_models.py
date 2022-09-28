@@ -1,5 +1,3 @@
-# import pdb
-# pdb.set_trace()
 import numpy as np
 import spconv
 import torch
@@ -9,14 +7,13 @@ import MinkowskiEngine as ME
 from pytorch_lightning.core.lightning import LightningModule
 import cont_assoc.models.unet_blocks as blocks
 import cont_assoc.models.panoptic_models as p_models
-import cont_assoc.models.unet_models_pos_encoder as u_models
+import cont_assoc.models.unet_models_without_pos as u_models
 import cont_assoc.utils.predict as pred
 import cont_assoc.utils.contrastive as cont
 import cont_assoc.utils.testing as testing
 from cont_assoc.utils.evaluate_panoptic import PanopticKittiEvaluator
 from cont_assoc.utils.evaluate_4dpanoptic import PanopticKitti4DEvaluator
-# from cont_assoc.utils.assoc_module import AssociationModule
-import cont_assoc.utils.save_features as sf
+import cont_assoc.utils.save_features_cunet as sf
 
 
 class DSU4D(LightningModule):
@@ -29,15 +26,7 @@ class DSU4D(LightningModule):
         self.unet_model = u_models.UNet(u_cfg)
         # self.encoder = SparseEncoder(u_cfg)
         self.evaluator4D = PanopticKitti4DEvaluator(cfg=ps_cfg)
-        # feat_size = u_cfg.DATA_CONFIG.DATALOADER.POS_DATA_DIM
-        # self.pos_enc = cont.PositionalEncoder(max_freq=100000,
-                                            #   feat_size=feat_size,
-                                            #   dimensionality=3)
-        # weights = u_cfg.TRACKING.ASSOCIATION_WEIGHTS
-        # thresholds = u_cfg.TRACKING.ASSOCIATION_THRESHOLDS
-        # use_poses = u_cfg.MODEL.USE_POSES
-        # self.AssocModule = AssociationModule(weights, thresholds, self.encoder,
-        #                                      self.pos_enc, use_poses)
+        
         self.last_ins_id = 0
 
     def load_state_dicts(self, ps_dict, u_dict):
@@ -62,74 +51,34 @@ class DSU4D(LightningModule):
         return ins_feat
 
     
-    def group_instances_with_grid(self, pt_coordinates, pt_raw_feat, ins_pred, grid_position):
-        coordinates = []
-        features = []
-        n_instances = []
-        ins_ids = []
-        grid_coordinates = []
-        for i in range(len(pt_coordinates)):#for every scan in the batch
-            _coors = []
-            _grid_coor = []
-            _feats = []
-            _ids = []
-            pt_coors = pt_coordinates[i]#get point coordinates
-            feat = pt_raw_feat[i].numpy()#get point features
-            grid_pos = grid_position[i]
-            #get instance ids
-            pt_ins_id = ins_pred[i]
-            valid = pt_ins_id != 0 #ignore id=0
-            ids, n_ids = np.unique(pt_ins_id[valid],return_counts=True)
-            n_ins = 0
-            for ii in range(len(ids)):#iterate over all instances
-                if n_ids[ii] > 30:#filter too small instances
-                    pt_idx = np.where(pt_ins_id==ids[ii])[0]
-                    coors = torch.tensor(pt_coors[pt_idx],device='cuda')
-                    grid_coors = torch.tensor(grid_pos[pt_idx],device='cuda')
-                    feats = torch.tensor(feat[pt_idx],device='cuda')
-                    _coors.extend([coors])
-                    _grid_coor.extend([grid_coors])
-                    _feats.extend([feats])
-                    _ids.extend([ids[ii]])
-                    n_ins += 1
-            coordinates.append(_coors)
-            grid_coordinates.append(_grid_coor)
-            features.append(_feats)
-            n_instances.append(n_ins)
-            ins_ids.append(_ids)
-        return coordinates, features, n_instances, ins_ids, ins_pred, grid_coordinates
 
 
-
-
-    def get_ins_feat(self, x, ins_pred, raw_features):          # torch.Size([49315, 128])
+    def get_ins_feat(self, x, ins_pred, raw_features):          
         #Group points into instances
-        pt_raw_feat = pred.feat_voxel2point(raw_features,x)     # torch.Size([123389, 128])
+        pt_raw_feat = pred.feat_voxel2point(raw_features,x)     
         pt_coordinates = x['pt_cart_xyz']
-        grid_pos = x['grid']
 
-        coordinates, features, n_instances, ins_ids, ins_pred, grid_coordinates= self.group_instances_with_grid(pt_coordinates, pt_raw_feat, ins_pred, grid_pos)
+        coordinates, features, n_instances, ins_ids, ins_pred = cont.group_instances(pt_coordinates, pt_raw_feat, ins_pred)
 
         #Discard scans without instances
         features = [x for x in features if len(x)!=0]
         coordinates = [x for x in coordinates if len(x)!=0]
-        grid_coordinates = [x for x in grid_coordinates if len(x)!=0]
 
         if len(features)==0:#don't run tracking head if no ins
             # return [], [], [], ins_pred
             return [], [], [], ins_pred, {}
 
         #Get per-instance feature
-        tracking_input = {'pt_features':features,'pt_coors':coordinates, 'grid_coors': grid_coordinates}
+        tracking_input = {'pt_features':features,'pt_coors':coordinates}
 
         # ins_feat = self.unet_model(tracking_input)          
         ins_feat = self.get_mean(features)                      # average the point features to get only one 128-d feature per instance
 
         if len(coordinates) != len(ins_ids):
             #scans without instances
-            new_feats, new_coors, new_grid_coordinates = cont.fix_batches(ins_ids, features, coordinates)       # need to modify
-            tracking_input = {'pt_features':new_feats,'pt_coors':new_coors, 'grid_coors': new_grid_coordinates}
-
+            new_feats, new_coors = cont.fix_batches(ins_ids, features, coordinates)
+            tracking_input = {'pt_features':new_feats,'pt_coors':new_coors}
+            
         return ins_feat, n_instances, ins_ids, ins_pred, tracking_input
 
     def track(self, ins_pred, ins_feat, n_instances, ins_ids, tr_input, poses, x):
@@ -189,6 +138,7 @@ class DSU4D(LightningModule):
 
 
 # Modules
+
 class SparseEncoder(nn.Module):
     def __init__(self, cfg):
         super().__init__()

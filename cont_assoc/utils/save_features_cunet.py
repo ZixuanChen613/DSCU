@@ -1,5 +1,3 @@
-# import pdb
-# pdb.set_trace()
 import numpy as np
 import os
 import torch
@@ -21,17 +19,18 @@ def save_features(x, raw_feat, sem_pred, ins_pred, save_preds):
             sem = sem_pred[i]
             ins =  ins_pred[i]
             valid = ins != 0
-            seq_path = '/_data/data_0721/validation_predictions/sequences/'+seq+'/'
+            seq_path = '/_data/cu_net/validation_predictions/sequences/'+seq+'/'    # need to change the path
             max_pt = 30
         else:
             valid = x['pt_valid'][i]
             sem = x['pt_labs'][i]
             ins =  x['pt_ins_labels'][i]
-            seq_path = '/_data/data_0721/instance_features/sequences/'+seq+'/'
+            seq_path = '/_data/cu_net/instance_features/sequences/'+seq+'/'         # need to change the path
             max_pt = 10
         ids, n_ids = np.unique(ins[valid],return_counts=True)
         # new_feat = feat[valid]
-        new_feat = feat
+        # all point features from panoptic backbone 
+        # new_feat = feat
         for ii in range(len(ids)):
             if n_ids[ii] <= max_pt:
                 continue
@@ -63,8 +62,8 @@ def save_features(x, raw_feat, sem_pred, ins_pred, save_preds):
                 f.close()
                 continue
         if save_preds:
-            np_instances = np.array([seq,fname,_ids,_sem_labels,_n_pts,_coors,_feats,new_feat,sem_pred[i],ins_pred[i],x['pcd_fname'][i],x['pt_labs'][i],x['pt_ins_labels'][i]],dtype=object)
+            np_instances = np.array([seq,fname,_ids,_sem_labels,_n_pts,_coors,_feats,sem_pred[i],ins_pred[i],x['pcd_fname'][i],x['pt_labs'][i],x['pt_ins_labels'][i]],dtype=object)
         else:
-            np_instances = np.array([seq,fname,_ids,_sem_labels,_n_pts,_coors,_feats,new_feat],dtype=object)
+            np_instances = np.array([seq,fname,_ids,_sem_labels,_n_pts,_coors,_feats],dtype=object)
 
         np.save(filename,np_instances,allow_pickle=True)

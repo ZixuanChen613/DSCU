@@ -1,6 +1,6 @@
 import click
 import cont_assoc.datasets.unet_dataset as unet_dataset #kitti_dataset
-import cont_assoc.models.unet_models_pos as models
+import cont_assoc.models.unet_models_without_pos as models
 
 from easydict import EasyDict as edict
 import os
@@ -40,7 +40,7 @@ def main(config, weights):
         model.load_state_dict(pretrain['state_dict'],strict=True)
 
 
-    tb_logger = pl_loggers.TensorBoardLogger('experiments/'+cfg.EXPERIMENT.ID+'_pos',          
+    tb_logger = pl_loggers.TensorBoardLogger('experiments/'+cfg.EXPERIMENT.ID+'_without_pos',          
                                              default_hp_metric=False)
 
     lr_monitor = LearningRateMonitor(logging_interval='step')

@@ -3,19 +3,21 @@ import MinkowskiEngine as ME
 import numpy as np
 from scipy.optimize import linear_sum_assignment as lsa
 import torch
-
+import torch.nn as nn
+import torch.nn.functional as F
 from cont_assoc.utils.kalman_filter import KalmanBoxTracker
 import cont_assoc.utils.tracking as t
 import cont_assoc.utils.contrastive as cont
+import cont_assoc.models.unet_blocks as blocks
 
 class AssociationModule():
-    def __init__(self, weights, thresholds, enc, pos_enc, use_poses):
+    def __init__(self, weights, thresholds, use_poses):
         super().__init__()
         self.assoc_w = weights
         self.assoc_T = thresholds
         self.use_poses = use_poses
-        self.pos_encoder = pos_enc
-        self.encoder = enc
+        # self.pos_encoder = pos_enc
+        # self.encoder = enc
         self.tr_ins = {}
         self.last_ins_id = 0
         self.cos = torch.nn.CosineSimilarity(dim=0, eps=1e-6)
@@ -31,7 +33,7 @@ class AssociationModule():
         return self.last_ins_id
 
 
-    def associate(self, ins_preds, ins_feat, pt_coors, pt_feat, poses, ins_ids):
+    def associate(self, ins_preds, ins_feat, pt_coors, pt_feat, poses, ins_ids, grid_coors, x):
         new_ins_preds = []
         for i in range(len(ins_feat)): #for every scan in the batch
             if len(ins_feat[i]) == 0: #no instances
@@ -39,11 +41,11 @@ class AssociationModule():
                 continue
             ins_pred = ins_preds[i]
             curr_ins = self.init_curr_ins(ins_pred, ins_feat[i], pt_coors[i],
-                                          poses[i][0],pt_feat[i],ins_ids[i])
+                                          poses[i][0],pt_feat[i],ins_ids[i], grid_coors[i])
 
             if len(self.tr_ins) > 0:
                 inv_pose = np.linalg.inv(poses[i][0])
-                self.predict_poses(inv_pose)
+                self.predict_poses(inv_pose, x)
                 cost_matrix, assoc_pairs = self.get_associations(self.tr_ins, curr_ins)
                 curr_ins = self.perform_associations(curr_ins, assoc_pairs, ins_pred)
             self.add_non_matching_ins(curr_ins, ins_pred)
@@ -55,7 +57,7 @@ class AssociationModule():
             new_ins_preds.append(ins_pred)
         return new_ins_preds
 
-    def init_curr_ins(self, ins_pred, ins_feat, pt_coors, pose, pt_feats, ins_ids):
+    def init_curr_ins(self, ins_pred, ins_feat, pt_coors, pose, pt_feats, ins_ids, grid_coors):
         curr_ins = {}
         for j in range(len(ins_ids)): #go over all instances in current scan
             ind = np.where(ins_pred == ins_ids[j])
@@ -65,6 +67,7 @@ class AssociationModule():
                 continue
             #initialize object tracks in current frame
             _coors = pt_coors[j]
+            _grid_coors = grid_coors[j]
             if self.use_poses:
                 _coors = self.apply_pose(pt_coors[j],pose)
             bbox, k_bbox = t.get_bbox_from_points(_coors.cpu().numpy())
@@ -74,23 +77,32 @@ class AssociationModule():
                                    'pt_coors': _coors,
                                    'pt_feats': pt_feats[j],
                                    'kalman_bbox': k_bbox,
-                                   'tracker': tracker}
+                                   'tracker': tracker,
+                                   'grid_coors': _grid_coors}
         return curr_ins
 
-    def predict_poses(self, inv_pose):
+
+    def predict_poses(self, inv_pose, x):
         for k in self.tr_ins.keys():
             points = self.tr_ins[k]['pt_coors']
+            grid_points = self.tr_ins[k]['grid_coors']
             self.tr_ins[k]['kalman_bbox'] = self.tr_ins[k]['tracker'].predict()
             #Update positional encoding and features with poses
-            if self.use_poses:
-                #Transform from global to local coordinates
-                t_points = self.apply_pose(points, inv_pose)
-                #Create sparse tensor using new points coordinates
-                pt_feat = self.tr_ins[k]['pt_feats']
-                sparse = self.sparse_tensor(t_points, pt_feat, self.pos_encoder)
-                #Update feature using contrastive network
-                new_feat = self.encoder(sparse)
-                self.tr_ins[k]['feature'] = new_feat.squeeze(0)
+            # if self.use_poses:
+            #     #Transform from global to local grid coordinates
+            #     t_points = self.apply_pose(points, inv_pose)
+            #     t_grid_points = self.apply_pose(grid_points, inv_pose).round().int()  # 480 360 32
+            #     t_grid = self.helper(t_grid_points)
+            #     t_grid = F.pad(t_grid, (1, 0))
+            #     # extract the grid features
+            #     pt_feat = self.tr_ins[k]['pt_feats']
+            #     t_pt_feat = self.voxel_feature_extractor.SemFeatureCompression(pt_feat)
+            #     #Update feature using contrastive u-net
+            #     voxel_features_pos = self.sparse_tensor(t_grid[:,1:], t_pt_feat, self.pos_encoder)
+            #     batch_size = len(x['grid'])
+            #     new_feat = self.encoder(t_grid, voxel_features_pos, batch_size)
+            #     new_ins_feat = torch.mean(new_feat.features, 0)
+            #     self.tr_ins[k]['feature'] = new_ins_feat
 
     def get_associations(self, prev_ins, curr_ins):
         dist_w, feat_w = self.assoc_w
@@ -131,6 +143,7 @@ class AssociationModule():
             self.tr_ins[prev_id]['pt_feats'] = curr_ins[new_id]['pt_feats']
             self.tr_ins[prev_id]['kalman_bbox'] = self.tr_ins[prev_id]['tracker'].get_state()
             self.tr_ins[prev_id]['tracker'].update(curr_ins[new_id]['kalman_bbox'], prev_id)
+            self.tr_ins[prev_id]['grid_coors'] = curr_ins[new_id]['grid_coors']
 
             del curr_ins[new_id] #remove already assigned instances
         return curr_ins
@@ -168,12 +181,12 @@ class AssociationModule():
                 ins_pred[valid_ind] = 0
         return ins_pred
 
-    def sparse_tensor(self, pt_coors, pt_features, pos_encoder):
-        pos_encoding = pos_encoder(pt_coors)
-        pt_features = pt_features + pos_encoding
-        c_, f_ = ME.utils.sparse_collate([pt_coors], [pt_features], dtype=torch.float32)
-        sparse = ME.SparseTensor(features=f_.float(), coordinates=c_.int(),device='cuda')
-        return sparse
+    # def sparse_tensor(self, pt_coors, pt_features, pos_encoder):
+    #     pos_encoding = pos_encoder(pt_coors)            # torch.Size([434, 128])
+    #     pt_features = pt_features + pos_encoding            # torch.Size([434, 128]), torch.Size([434, 128])
+    #     # c_, f_ = ME.utils.sparse_collate([pt_coors], [pt_features], dtype=torch.float32)
+    #     # sparse = ME.SparseTensor(features=f_.float(), coordinates=c_.int(),device='cuda')
+    #     return pt_features               # torch.Size([13, 128])
 
     def apply_pose(self, points, pose):
         hpts = torch.hstack((points[:, :3], torch.ones_like(points[:, :1]))).type(torch.float64)
@@ -181,3 +194,4 @@ class AssociationModule():
         tr_pts = torch.mm(hpts,t_pose)
         shifted_pts = tr_pts[:,:3]
         return shifted_pts
+

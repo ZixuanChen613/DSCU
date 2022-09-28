@@ -1,7 +1,7 @@
 import click
 import cont_assoc.datasets.kitti_dataset as kitti_dataset
 import cont_assoc.datasets.unet_dataset as unet_dataset
-import cont_assoc.models.dsu4d_pos_models as models
+import cont_assoc.models.dscu_without_pos_models as models
 from easydict import EasyDict as edict
 import os
 from os.path import join
@@ -12,25 +12,27 @@ import yaml
 
 def getDir(obj):
     return os.path.dirname(os.path.abspath(obj))
-
 @click.command()
 @click.option('--test_set', is_flag=True)
 @click.option('--ckpt_ps', type=str, required=True)
 @click.option('--ckpt_u', type=str, required=True)
 @click.option('--save', is_flag=True)
+@click.option('--save_val_pred', is_flag=True)
 @click.option('--config_ps', '-cs', type=str,
               default=join(getDir(__file__), '../config/panoptic_cylinder.yaml'))
 @click.option('--config_u', '-u', type=str,
               default=join(getDir(__file__), '../config/u_net.yaml'))
 
-def main(config_ps, config_u, ckpt_ps, ckpt_u, save, test_set):
+def main(config_ps, config_u, ckpt_ps, ckpt_u, save, save_val_pred, test_set):
     ps_cfg = edict(yaml.safe_load(open(config_ps)))
     u_cfg = edict(yaml.safe_load(open(config_u)))
 
     if save:
         results_dir = create_dirs(test_set)
         ps_cfg.RESULTS_DIR = results_dir
-        # ps_cfg.SAVE_VAL_PRED = 'True'          # save val pred
+
+    if save_val_pred:
+        ps_cfg.SAVE_VAL_PRED = 'True'          # save val pred
         
     ps_cfg.UPDATE_METRICS = 'True'
 

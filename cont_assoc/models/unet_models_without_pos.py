@@ -12,7 +12,7 @@ from cont_assoc.utils.evaluate_panoptic import PanopticKittiEvaluator
 from cont_assoc.utils.evaluate_4dpanoptic import PanopticKitti4DEvaluator
 from utils.common_utils import SemKITTI2train
 from cont_assoc.models.loss_contrastive import SupConLoss
-from cont_assoc.utils.assoc_module_with_pos import AssociationModule
+from cont_assoc.utils.assoc_module_without_pos import AssociationModule
 import cont_assoc.utils.contrastive as cont
 import torch.optim.lr_scheduler as schedul
 import MinkowskiEngine as ME
@@ -23,15 +23,16 @@ class UNet(LightningModule):
         super().__init__()
 
         self.cfg = cfg
-        self.ignore_label = cfg.DATA_CONFIG.DATALOADER.CONVERT_IGNORE_LABEL         
+        self.ignore_label = cfg.DATA_CONFIG.DATALOADER.CONVERT_IGNORE_LABEL       
 
-        self.voxel_feature_extractor = blocks.VoxelFeatureExtractor(cfg)          
-
-        self.pos_cunet = PosCUnet(cfg)
-        self.ins_loss = SupConLoss(temperature=0.1)        
+        self.voxel_feature_extractor = blocks.VoxelFeatureExtractor(cfg)         
+        self.encoder = CylinderEncoder(cfg)
+        self.decoder = CylinderDecoder(cfg)
+        
+        self.ins_loss = SupConLoss(temperature=0.1)          # modify
         self.val_loss = np.float(0)
         self.val_num = 0
-        self.evaluator4D = PanopticKitti4DEvaluator(cfg=cfg)     
+        self.evaluator4D = PanopticKitti4DEvaluator(cfg=cfg)
         feat_size = cfg.DATA_CONFIG.DATALOADER.POS_DATA_DIM
         self.pos_enc = cont.PositionalEncoder(max_freq=100000,
                                               feat_size=feat_size,
@@ -39,8 +40,10 @@ class UNet(LightningModule):
         weights = cfg.TRACKING.ASSOCIATION_WEIGHTS
         thresholds = cfg.TRACKING.ASSOCIATION_THRESHOLDS
         use_poses = cfg.MODEL.USE_POSES
-        self.AssocModule = AssociationModule(weights, thresholds, self.pos_cunet,
-                                             self.pos_enc, use_poses, self.voxel_feature_extractor, cfg)
+        self.AssocModule = AssociationModule(weights, thresholds, use_poses)
+
+        self.sparse_encoder = SparseEncoder(cfg)        # need to modify
+     
 
 
     def get_mean(self, features):
@@ -50,75 +53,51 @@ class UNet(LightningModule):
                 ins_feats.append(torch.mean(features[i][j], 0))
         ins_feat = torch.stack(ins_feats, 0)
         return ins_feat
-    
-    def group_instances_with_grid(self, pt_coordinates, pt_raw_feat, ins_pred, grid_position):
-        coordinates = []
-        features = []
-        n_instances = []
-        ins_ids = []
-        grid_coordinates = []
-        for i in range(len(pt_coordinates)):#for every scan in the batch
-            _coors = []
-            _grid_coor = []
-            _feats = []
-            _ids = []
-            pt_coors = pt_coordinates[i]#get point coordinates
-            feat = pt_raw_feat[i].numpy()#get point features
-            grid_pos = grid_position[i]
-            #get instance ids
-            pt_ins_id = ins_pred[i]
-            valid = pt_ins_id != 0 #ignore id=0
-            ids, n_ids = np.unique(pt_ins_id[valid],return_counts=True)
-            n_ins = 0
-            for ii in range(len(ids)):#iterate over all instances
-                if n_ids[ii] > 30:#filter too small instances
-                    pt_idx = np.where(pt_ins_id==ids[ii])[0]
-                    coors = torch.tensor(pt_coors[pt_idx],device='cuda')
-                    grid_coors = torch.tensor(grid_pos[pt_idx],device='cuda')
-                    feats = torch.tensor(feat[pt_idx],device='cuda')
-                    _coors.extend([coors])
-                    _grid_coor.extend([grid_coors])
-                    _feats.extend([feats])
-                    _ids.extend([ids[ii]])
-                    n_ins += 1
-            coordinates.append(_coors)
-            grid_coordinates.append(_grid_coor)
-            features.append(_feats)
-            n_instances.append(n_ins)
-            ins_ids.append(_ids)
-        return coordinates, features, n_instances, ins_ids, ins_pred, grid_coordinates
 
-
-    def get_ins_feat(self, x, ins_pred, raw_features):          
+    def get_ins_feat(self, x, ins_pred, raw_features):          # torch.Size([49315, 128])
         #Group points into instances
-        pt_raw_feat = pred.feat_voxel2point(raw_features,x)     
+        pt_raw_feat = pred.feat_voxel2point(raw_features,x)     # torch.Size([123389, 128])
         pt_coordinates = x['pt_cart_xyz']
-        grid_pos = x['grid']
 
-        # coordinates, features, n_instances, ins_ids, ins_pred = cont.group_instances(pt_coordinates, pt_raw_feat, ins_pred)
-        coordinates, features, n_instances, ins_ids, ins_pred, grid_coordinates = self.group_instances_with_grid(pt_coordinates, pt_raw_feat, ins_pred, grid_pos)
+        coordinates, features, n_instances, ins_ids, ins_pred = cont.group_instances(pt_coordinates, pt_raw_feat, ins_pred)
+
         #Discard scans without instances
         features = [x for x in features if len(x)!=0]
         coordinates = [x for x in coordinates if len(x)!=0]
-        grid_coordinates = [x for x in grid_coordinates if len(x)!=0]
 
         if len(features)==0:#don't run tracking head if no ins
             # return [], [], [], ins_pred
             return [], [], [], ins_pred, {}
 
         #Get per-instance feature
-        tracking_input = {'pt_features':features,'pt_coors':coordinates, 'grid_coors': grid_coordinates}
+        tracking_input = {'pt_features':features,'pt_coors':coordinates}
 
         # ins_feat = self.unet_model(tracking_input)          
         ins_feat = self.get_mean(features)                      # average the point features to get only one 128-d feature per instance
 
         if len(coordinates) != len(ins_ids):
             #scans without instances
-            new_feats, new_coors, new_grid_coordinates = cont.fix_batches(ins_ids, features, coordinates)       # need to modify
-            tracking_input = {'pt_features':new_feats,'pt_coors':new_coors, 'grid_coors': new_grid_coordinates}
+            new_feats, new_coors = cont.fix_batches(ins_ids, features, coordinates)
+            tracking_input = {'pt_features':new_feats,'pt_coors':new_coors}
 
         return ins_feat, n_instances, ins_ids, ins_pred, tracking_input
 
+    # def track(self, ins_pred, ins_feat, n_instances, ins_ids, tr_input, poses):
+    #     #Separate instances of different scans
+    #     points = tr_input['pt_coors']
+    #     features = tr_input['pt_features']
+    #     ins_feat = torch.split(ins_feat, n_instances)       # torch.Size([7, 128])
+    #     poses = [[p] for p in poses]
+
+    #     #Instance IDs association
+    #     ins_pred = self.AssocModule.associate(ins_pred, ins_feat,
+    #                                                         points, features,
+    #                                                         poses, ins_ids)
+
+    #     self.last_ins_id = self.AssocModule.get_last_id()
+    #     self.AssocModule.update_last_id(self.last_ins_id)
+
+    #     return ins_pred
 
     def get_pq(self):
         return self.evaluator.get_mean_pq()
@@ -138,34 +117,17 @@ class UNet(LightningModule):
 
         return sem_pred, ins_pred
 
-
-    def merge_pos(self, pt_coors, pt_features):
-        for i in range(len(pt_features)):
-            pos_encoding = self.pos_enc(pt_coors[i])
-            pt_features[i] = pt_features[i] + pos_encoding
-        return pt_features
-
-        #create sparse tensor
-        # all_feat = [item for sublist in pt_features for item in sublist]
-        # all_coors = [item for sublist in pt_coors for item in sublist]
-        # c_, f_ = ME.utils.sparse_collate(all_coors, all_feat, dtype=torch.float32)
-        # sparse = ME.SparseTensor(features=f_, coordinates=c_.int(),device='cuda')
-        # return sparse
-
-
-
     def forward(self, x):
-        
-        coordinates, voxel_features = self.voxel_feature_extractor(x)
-        voxel_features_pos = self.merge_pos([coordinates[:,1:]], [voxel_features])[0]
-        batch_size = len(x['grid'])
-        ins_features = self.pos_cunet(coordinates, voxel_features_pos, batch_size)                    
 
-        return ins_features
+        coordinates, voxel_features = self.voxel_feature_extractor(x)
+        encoding, skips = self.encoder(voxel_features, coordinates, len(x['grid'])) ## modify
+        semantic_feat, instance_feat = self.decoder(encoding, skips)
+
+        return instance_feat
 
     #############################################################
 
-    def configure_optimizers(self):  
+    def configure_optimizers(self):  # need to modify?
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad,
                                 self.parameters()), lr=self.cfg.TRAIN.LR)
         eta_min=self.cfg.TRAIN.LR/self.cfg.TRAIN.SCHEDULER.DIV_FACTOR
@@ -174,6 +136,7 @@ class UNet(LightningModule):
                                               eta_min=eta_min)
         return [optimizer], [scheduler]
 
+    
     def sample_loss(self, norm_features, pos_labels, sem_labels, pos_scans):
         _feats = []
         _pos_labels = []
@@ -230,11 +193,12 @@ class UNet(LightningModule):
         sem_labels = (torch.cat([i for i in sem_labels])) 
         pos_labels = [torch.from_numpy(i).type(torch.LongTensor).cuda()
                       for i in x['pt_ins_labels']]
-        pos_labels = (torch.cat([i for i in pos_labels])) 
+        pos_labels = (torch.cat([i for i in pos_labels]))
+        
         pt_raw_feat = pred.feat_voxel2point(features, x)
-        pt_raw_feat = (torch.cat([i for i in pt_raw_feat])).cuda()            
+        pt_raw_feat = (torch.cat([i for i in pt_raw_feat])).cuda()                
         norm_features = F.normalize(pt_raw_feat)
-
+        
         valid = x['pt_valid']
         pos_scans = x['pos_scans'][0]
         valid = (np.concatenate([i for i in valid]))
@@ -243,7 +207,7 @@ class UNet(LightningModule):
         norm_features = norm_features[valid]
         # different number of samples for loss function
         feats, pos_l, sem_l = self.sample_loss(norm_features, pos_labels, sem_labels, pos_scans)
-        ins_loss = self.ins_loss(feats, pos_l, sem_l)         # torch.Size([13242, 128])
+        ins_loss = self.ins_loss(feats, pos_l, sem_l)        
         loss['unet_loss'] = ins_loss
         return loss
 
@@ -276,20 +240,27 @@ class UNet(LightningModule):
         # sem_pred = x['pt_sem_pred']             # (123159,)
 
         # ins_feat, n_ins, ins_ids, ins_pred, tr_input = self.get_ins_feat(x, ins_pred, instance_feat)
+
+        # # ins_ids = x['id']                       # [[1, 2, 4, 5, 6, 7, 11, 14, 15, 17, 18, 20, 21, 22, 24, 28, 30, 31, 32, 33, 34, 35, 36, 41, 46, 63]]
+        # # n_instances = [len(item) for item in x['id']]           # [26]
+
         # n_instances = n_ins
-        # ins_feat = torch.split(ins_feat, n_instances)
+        # ins_feat = torch.split(ins_feat, n_instances)  # torch.Size([26, 2048])
+        # # batched_ins_feat = torch.split(instance_features, n_instances)
+        
+        # # points = x['pt_coors']
+        # # features = x['pt_features']
         # points = tr_input['pt_coors']
         # features = tr_input['pt_features']
-        # grid_coors = tr_input['grid_coors']
         # poses = x['pose']
         # poses = [[p] for p in poses]
-        # ins_pread = self.AssocModule.associate(ins_pred, ins_feat, points, features, poses, ins_ids, grid_coors, x)
+        # # (123159,); torch.Size([26, 2048]); 
+        # ins_pread = self.AssocModule.associate(ins_pred, ins_feat, points,features, poses, ins_ids)
         # self.evaluator4D.update(sem_pred, ins_pred, x)
 
         # torch.cuda.empty_cache()
-        # return
 
-        
+        # return
 
 
     def validation_epoch_end(self, outputs):
@@ -297,7 +268,6 @@ class UNet(LightningModule):
         self.log('val_loss',val_loss)
         self.val_loss = 0
         self.val_num = 0
-
         # self.evaluator4D.calculate_metrics()
         # AQ = self.evaluator4D.get_mean_aq()
         # self.log('AQ',AQ)
@@ -428,18 +398,49 @@ class CylinderInstanceHead(nn.Module):
 
 
 # Modules
-class PosCUnet(nn.Module):
+class SparseEncoder(nn.Module):
     def __init__(self, cfg):
         super().__init__()
-        self.voxel_feature_extractor = blocks.VoxelFeatureExtractor(cfg)          #mm
-        self.encoder = CylinderEncoder(cfg)
-        self.decoder = CylinderDecoder(cfg)
-      
-    def forward(self, coordinates, voxel_features,  batch_size):
-        encoding, skips = self.encoder(voxel_features, coordinates, batch_size) ## modify
-        semantic_feat, instance_feat = self.decoder(encoding, skips)
-        return instance_feat
+        input_dim = cfg.DATA_CONFIG.DATALOADER.DATA_DIM #128
+        channels = [x * input_dim for x in cfg.MODEL.ENCODER.CHANNELS] #128, 128, 256, 512
+        kernel_size = 3
 
+        self.conv1 = SparseConvBlock(
+            channels[0],
+            channels[1],
+            kernel_size=kernel_size,
+            stride=1,
+        )
+        self.conv2 = SparseConvBlock(
+            channels[1],
+            channels[2],
+            kernel_size=kernel_size,
+            stride=2,
+        )
+
+        self.conv3 = SparseConvBlock(
+            channels[2],
+            channels[3],
+            kernel_size=kernel_size,
+            stride=2,
+        )
+
+        self.global_max_pool = ME.MinkowskiGlobalMaxPooling()
+        self.global_avg_pool = ME.MinkowskiGlobalAvgPooling()
+
+        self.final = nn.Sequential(
+            SparseLinearBlock(channels[-1], 2*channels[-1]),
+            ME.MinkowskiDropout(),
+            SparseLinearBlock(2*channels[-1], channels[-1]),
+            ME.MinkowskiLinear(channels[-1], channels[-1], bias=True),
+        )
+
+    def forward(self, x):
+        y = self.conv1(x)
+        y = self.conv2(y)
+        y = self.conv3(y)
+        y = self.global_avg_pool(y)
+        return self.final(y).F
 
 class SparseLinearBlock(nn.Module):
     def __init__(self, in_channel, out_channel, bias=False):

@@ -24,10 +24,8 @@ class AssociationModule():
         self.tr_ins = {}
         self.last_ins_id = 0
         self.cos = torch.nn.CosineSimilarity(dim=0, eps=1e-6)
-        # self.voxel_feature_extractor = blocks.VoxelFeatureExtractor(cfg)
         self.grid_size = cfg.DATA_CONFIG.DATALOADER.GRID_SIZE
-        # self.sem_feat_dim = 128
-        # self.point_feature_dim = cfg.MODEL.VOXEL_FEATURES.FEATURE_DIM
+        
 
     def clear(self):
         self.tr_ins = {}
@@ -75,6 +73,7 @@ class AssociationModule():
             #initialize object tracks in current frame
             _coors = pt_coors[j]
             _grid_coors = grid_coors[j]
+            #Update kalmanbox with poses
             if self.use_poses:
                 _coors = self.apply_pose(pt_coors[j],pose)
             bbox, k_bbox = t.get_bbox_from_points(_coors.cpu().numpy())
@@ -89,7 +88,7 @@ class AssociationModule():
         return curr_ins
 
 
-    def helper(self, grid, size=[479, 359, 31]):
+    def helper(self, grid, size):       # ??????      
         for i in range(3):
             idx_t = grid[:,i] > size[i]
             grid[idx_t,i] = size[i]
@@ -103,20 +102,16 @@ class AssociationModule():
             grid_points = self.tr_ins[k]['grid_coors']
             self.tr_ins[k]['kalman_bbox'] = self.tr_ins[k]['tracker'].predict()
             #Update positional encoding and features with poses
-            if 1 == 2:    #self.use_poses:
-                #Transform from global to local coordinates
+            if self.use_poses:
+                #Transform from global to local grid coordinates
                 t_points = self.apply_pose(points, inv_pose)
                 t_grid_points = self.apply_pose(grid_points, inv_pose).round().int()  # 480 360 32
-                t_grid = self.helper(t_grid_points)
-                #Create sparse tensor using new points coordinates
-                pt_feat = self.tr_ins[k]['pt_feats']
-
-                # sparse = self.sparse_tensor(t_points, pt_feat, self.pos_encoder)
-                # #Update feature using contrastive network
-                t_pt_feat = self.voxel_feature_extractor.SemFeatureCompression(pt_feat)
+                t_grid = self.helper(t_grid_points, self.grid_size-1)
                 t_grid = F.pad(t_grid, (1, 0))
-                ##########
-                # coordinates, voxel_features = self.voxel_feature_extractor(x)
+                # extract the grid features
+                pt_feat = self.tr_ins[k]['pt_feats']
+                t_pt_feat = self.voxel_feature_extractor.SemFeatureCompression(pt_feat)
+                #Update feature using contrastive u-net
                 voxel_features_pos = self.sparse_tensor(t_grid[:,1:], t_pt_feat, self.pos_encoder)
                 batch_size = len(x['grid'])
                 new_feat = self.encoder(t_grid, voxel_features_pos, batch_size)

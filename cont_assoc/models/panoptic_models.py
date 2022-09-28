@@ -1,5 +1,3 @@
-# import pdb
-# pdb.set_trace()
 import numpy as np
 import spconv
 import torch
@@ -10,7 +8,7 @@ from pytorch_lightning.core.lightning import LightningModule
 import cont_assoc.models.blocks as blocks
 import cont_assoc.utils.predict as pred
 import cont_assoc.utils.testing as testing
-import cont_assoc.utils.save_features as sf
+import cont_assoc.utils.save_features_dsnet as sf
 from cont_assoc.utils.evaluate_panoptic import PanopticKittiEvaluator
 from cont_assoc.utils.evaluate_4dpanoptic import PanopticKitti4DEvaluator
 

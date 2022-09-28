@@ -1,5 +1,3 @@
-# import pdb
-# pdb.set_trace()
 import os
 import numpy as np
 import torch
@@ -36,7 +34,7 @@ class SemanticKittiModule(LightningDataModule):
         train_pt_dataset = SemanticKitti(
             self.cfg.DATA_CONFIG.DATASET_PATH + '/sequences/',
             self.cfg.DATA_CONFIG.UNET_TRAIN_PATH + '/sequences/',
-            pos_scans = self.cfg.TRAIN.POS_SCANS,       # 2
+            pos_scans = self.cfg.TRAIN.POS_SCANS,
             split = train_split,
             r_pos_scans = self.cfg.TRAIN.RANDOM_POS_SCANS
         )
@@ -48,12 +46,12 @@ class SemanticKittiModule(LightningDataModule):
             split = val_split
         )
 
-        test_pt_dataset = SemanticKitti(
-            self.cfg.DATA_CONFIG.DATASET_PATH + '/sequences/',
-            self.cfg.DATA_CONFIG.UNET_VAL_PATH + '/sequences/',  ## need to modify
-            pos_scans = 0,
-            split = test_split
-        )
+        # test_pt_dataset = SemanticKitti(
+        #     self.cfg.DATA_CONFIG.DATASET_PATH + '/sequences/',
+        #     self.cfg.DATA_CONFIG.UNET_VAL_PATH + '/sequences/',  ## need to modify
+        #     pos_scans = 0,
+        #     split = test_split
+        # )
         
         ########## Voxel spherical dataset splits
         self.train_set = CylindricalSemanticKitti(
@@ -70,12 +68,12 @@ class SemanticKittiModule(LightningDataModule):
             fixed_volume_space = self.cfg.DATA_CONFIG.DATALOADER.FIXED_VOLUME_SPACE,
         )
 
-        self.test_set = CylindricalSemanticKitti(
-            test_pt_dataset,
-            grid_size = self.cfg.DATA_CONFIG.DATALOADER.GRID_SIZE,
-            ignore_label = self.cfg.DATA_CONFIG.DATALOADER.CONVERT_IGNORE_LABEL,
-            fixed_volume_space = self.cfg.DATA_CONFIG.DATALOADER.FIXED_VOLUME_SPACE,
-        )
+        # self.test_set = CylindricalSemanticKitti(
+        #     test_pt_dataset,
+        #     grid_size = self.cfg.DATA_CONFIG.DATALOADER.GRID_SIZE,
+        #     ignore_label = self.cfg.DATA_CONFIG.DATALOADER.CONVERT_IGNORE_LABEL,
+        #     fixed_volume_space = self.cfg.DATA_CONFIG.DATALOADER.FIXED_VOLUME_SPACE,
+        # )
 
     def train_dataloader(self):
         self.train_loader = DataLoader(
@@ -105,19 +103,19 @@ class SemanticKittiModule(LightningDataModule):
         self.valid_iter = iter(self.valid_loader)
         return self.valid_loader
 
-    def test_dataloader(self):
-        self.test_loader = DataLoader(
-            dataset = self.test_set,
-            batch_size = self.cfg.EVAL.BATCH_SIZE,
-            collate_fn = collate_fn_BEV,
-            shuffle = False,
-            num_workers = self.cfg.DATA_CONFIG.DATALOADER.NUM_WORKER,
-            pin_memory = True,
-            drop_last = False,
-            timeout = 0
-        )
-        self.test_iter = iter(self.test_loader)
-        return self.test_loader
+    # def test_dataloader(self):
+    #     self.test_loader = DataLoader(
+    #         dataset = self.test_set,
+    #         batch_size = self.cfg.EVAL.BATCH_SIZE,
+    #         collate_fn = collate_fn_BEV,
+    #         shuffle = False,
+    #         num_workers = self.cfg.DATA_CONFIG.DATALOADER.NUM_WORKER,
+    #         pin_memory = True,
+    #         drop_last = False,
+    #         timeout = 0
+    #     )
+    #     self.test_iter = iter(self.test_loader)
+    #     return self.test_loader
 
 class SemanticKitti(Dataset):
     def __init__(self, data_path, unet_path, pos_scans, split='train', seq=None, r_pos_scans=False):  # modify unet_path
@@ -197,7 +195,7 @@ class SemanticKitti(Dataset):
 
             #####
             # select random scan based on index
-            fname = self.unet_idx[index]          # '/_data/zixuan/data_0620/single_frame/validation_predictions/sequences/08/scans/0000000.npy'
+            fname = self.unet_idx[index]          
             scan = int(fname[-10:-4])           # 0
             seq = fname[-19:-17]                # 08
             scans = [scan]
@@ -218,8 +216,8 @@ class SemanticKitti(Dataset):
                         pos_idx.append(index-i)
                 scans.append(scan+i)
                 pos_idx.append(index+i)
-            scans.sort()            # [0, 1, 2]
-            pos_idx.sort()          # [0, 1, 2]
+            scans.sort()            
+            pos_idx.sort()        
 
             prev_scan = 0
             if scans[0] > 0:
@@ -235,12 +233,12 @@ class SemanticKitti(Dataset):
                         prev_pose = self.poses[prev_scan]
                         prev_ids = prev_data[2]
                         prev_coors = prev_data[5]
-                        # prev_coors_T = apply_pose(prev_coors,prev_pose)
+                        
                     else:
                         prev_pose = []
                         prev_ids = []
                         prev_coors = []
-                        # prev_coors_T = []
+                       
                 scan_path = absoluteDirPath(self.unet_path+seq+'/scans/'+str(scans[i]).zfill(6)+'.npy')         # '/_data/zixuan/data_0620/single_frame/validation_predictions/sequences/08/scans/000000.npy'
                 if os.path.exists(scan_path):
                     #Check max number of points to avoid running out of memory
@@ -269,6 +267,7 @@ class SemanticKitti(Dataset):
                     # _coors = data[5]
                     # _feats = data[6]
 
+                    # load all point features from panoptic backbone net
                     _new_feats = data[7]
                     _ids = data[2]
 
@@ -495,16 +494,16 @@ def collate_fn_BEV(data): # stack along batch dimension
         'pt_cart_xyz': pt_cart_xyz,
         'pcd_fname': filename,
         'pose': pose,
-        'feats': feats,                          ##########
+        'feats': feats,             # point features from pannoptic backbone ds-net
         'pos_scans': pos_scans,
         'ids': ids
         }
 
     if len(data[0]) == 17:
-        pt_ins_pred = [d[15] for d in data]
-        pt_labs = [d[16] for d in data]
-        out_dict['pt_sem_pred'] = pt_ins_pred                #per point sem label
-        out_dict['pt_ins_pred'] = pt_labs    #per point instance label
+        pt_labs = [d[15] for d in data]
+        pt_ins_pred = [d[16] for d in data]
+        out_dict['pt_sem_pred'] = pt_labs       #predicted sem label per point
+        out_dict['pt_ins_pred'] = pt_ins_pred   #predicted ins label per point
 
     return out_dict
 

@@ -5,11 +5,9 @@ EXPERIMENT:
 ##Datasets
 DATA_CONFIG:
     DATASET_NAME: SemanticKitti
-    DATASET_PATH: /storage/ukp/work/chen_e/kitti/
-    #UNET_TRAIN_PATH: /storage/ukp/work/chen_e/data_0718/instance_features/
-    #UNET_VAL_PATH: /storage/ukp/work/chen_e/data_0718/validation_predictions/
-    UNET_TRAIN_PATH: /storage/ukp/work/chen_e/ds_net/instance_features/
-    UNET_VAL_PATH: /storage/ukp/work/chen_e/ds_net/validation_predictions/
+    DATASET_PATH: /_data/kitti
+    UNET_TRAIN_PATH: /_data/ds_net/instance_features/
+    UNET_VAL_PATH: /_data/ds_net/validation_predictions/
     CONFIG_FILE: ../cont_assoc/datasets/semantic-kitti.yaml
     NCLASS: 20
     DATALOADER:
