@@ -1,6 +1,6 @@
 import click
 import cont_assoc.datasets.unet_dataset as unet_dataset #kitti_dataset
-import cont_assoc.models.unet_models as models
+import cont_assoc.models.unet_models_train_aq_loss as models
 from easydict import EasyDict as edict
 import os
 from os.path import join
@@ -38,7 +38,7 @@ def main(config, weights):
         pretrain = torch.load(weights, map_location='cpu')
         model.load_state_dict(pretrain['state_dict'],strict=True)
 
-    tb_logger = pl_loggers.TensorBoardLogger('experiments/'+cfg.EXPERIMENT.ID,
+    tb_logger = pl_loggers.TensorBoardLogger('/storage/ukp/work/chen_e/experiments/aq'+cfg.EXPERIMENT.ID,
                                              default_hp_metric=False)
 
     lr_monitor = LearningRateMonitor(logging_interval='step')
@@ -46,8 +46,14 @@ def main(config, weights):
                                  filename=cfg.EXPERIMENT.ID+'_{epoch:03d}_{AQ:.3f}',
                                  mode='max',
                                  save_last=True)
+    #checkpoint = ModelCheckpoint(monitor='val_loss',
+     #                            filename=cfg.EXPERIMENT.ID+'_{epoch:03d}_{val_loss:.3f}',
+      #                           mode='min',
+       #                          save_last=True)
+
 
     trainer = Trainer(gpus=1, #cfg.TRAIN.N_GPUS,
+                      val_check_interval=0.8,
                       logger=tb_logger,
                       max_epochs= cfg.TRAIN.MAX_EPOCH,
                       log_every_n_steps=10,
@@ -58,3 +64,4 @@ def main(config, weights):
 
 if __name__ == "__main__":
     main()
+

@@ -82,7 +82,7 @@ class AssociationModule():
             points = self.tr_ins[k]['pt_coors']
             self.tr_ins[k]['kalman_bbox'] = self.tr_ins[k]['tracker'].predict()
             #Update positional encoding and features with poses
-            if self.use_poses:
+            if 1==2:
                 #Transform from global to local coordinates
                 t_points = self.apply_pose(points, inv_pose)
                 #Create sparse tensor using new points coordinates

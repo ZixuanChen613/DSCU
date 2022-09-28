@@ -61,6 +61,14 @@ def sem_voxel2point(sem_logits, inputs):
     point_pred = [vox_pred[vox_range[i]:vox_range[i+1]][vox2point_idx[i]] for i in range(len(vox2point_idx))]
     return point_pred
 
+def feat_voxel2point_unet(features, inputs):
+    vox_feat = features.cpu()
+    vox2point_idx = inputs['vox2point_idx'] #indices mapping voxel to point
+    n_valid = [inputs['vox_labels'][i].shape[1] for i in range(len(inputs['vox_labels']))] #n of valid voxels
+    vox_range = np.insert(np.add.accumulate(n_valid),0,0) #indices to acces per-batch valid voxels
+    point_feat = [vox_feat[vox_range[i]:vox_range[i+1]][vox2point_idx[i]] for i in range(len(vox2point_idx))]
+    return point_feat
+
 def feat_voxel2point(features, inputs):
     vox_feat = features.features.cpu()
     vox2point_idx = inputs['vox2point_idx'] #indices mapping voxel to point

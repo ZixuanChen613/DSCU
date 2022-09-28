@@ -5,9 +5,11 @@ EXPERIMENT:
 ##Datasets
 DATA_CONFIG:
     DATASET_NAME: SemanticKitti
-    DATASET_PATH: /_data/zixuan/data/kitti/
-    UNET_TRAIN_PATH: /_data/data_0718/instance_features/
-    UNET_VAL_PATH: /_data/data_0718/validation_predictions/
+    DATASET_PATH: /storage/ukp/work/chen_e/kitti/
+    #UNET_TRAIN_PATH: /storage/ukp/work/chen_e/data_0718/instance_features/
+    #UNET_VAL_PATH: /storage/ukp/work/chen_e/data_0718/validation_predictions/
+    UNET_TRAIN_PATH: /storage/ukp/work/chen_e/ds_net/instance_features/
+    UNET_VAL_PATH: /storage/ukp/work/chen_e/ds_net/validation_predictions/
     CONFIG_FILE: ../cont_assoc/datasets/semantic-kitti.yaml
     NCLASS: 20
     DATALOADER:
@@ -20,14 +22,19 @@ DATA_CONFIG:
         MAX_VOLUME_SPACE: [50, 'PI', 1.5]
         MIN_VOLUME_SPACE: [3, '-PI', -3]
         CENTER_TYPE: Axis_center
-        DATA_DIM: 9
-        NUM_WORKER: 1
+        DATA_DIM: 128
+        PN_DATA_DIM: 9
+        POS_DATA_DIM: 16   
+        NUM_WORKER: 0
 
 TRAIN:
-    LR: 0.05 # MODIFY
+    LR: 0.0001 # MODIFY
     N_GPUS: 1
     MAX_EPOCH: 50
     RANDOM_POS_SCANS: True
+    POS_SCANS: 2
+    SCHEDULER:
+        DIV_FACTOR: 1000
 
 
 EVAL:
@@ -52,3 +59,13 @@ MODEL:
         EMBEDDING_CHANNEL: 3
     POST_PROCESSING:
         BANDWIDTH: 1.2
+    ENCODER:
+        OUTPUT_DIM: 1024
+        NAME: sparse
+        CHANNELS: [1, 1, 1, 1] #128, 256, 512, 1024
+    USE_POSES: True
+
+TRACKING:
+    #distance, feature sim
+    ASSOCIATION_WEIGHTS: [0.7, 0.4]
+    ASSOCIATION_THRESHOLDS: [2, 0.2]

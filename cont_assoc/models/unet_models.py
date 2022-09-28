@@ -14,11 +14,18 @@ from pytorch_lightning.core.lightning import LightningModule
 import cont_assoc.models.unet_blocks as blocks
 import cont_assoc.utils.predict as pred
 import cont_assoc.utils.testing as testing
-import cont_assoc.utils.save_features as sf
+import cont_assoc.utils.save_features_unet as sf                # modified
 from cont_assoc.utils.evaluate_panoptic import PanopticKittiEvaluator
 from cont_assoc.utils.evaluate_4dpanoptic import PanopticKitti4DEvaluator
 from utils.common_utils import SemKITTI2train
+import cont_assoc.utils.contrastive as cont
 from cont_assoc.models.loss_contrastive import SupConLoss
+from sklearn.cluster import DBSCAN
+from sklearn.cluster import KMeans
+from sklearn import metrics
+from sklearn.manifold import TSNE 
+# import hdbscan
+from sklearn.mixture import BayesianGaussianMixture
 
 
 class UNet(LightningModule):
@@ -33,12 +40,19 @@ class UNet(LightningModule):
         self.decoder = CylinderDecoder(cfg)
         self.semantic_head = CylinderSemanticHead(cfg)
         self.instance_head = CylinderInstanceHead(cfg)
+        ############################################
+        feat_size = cfg.DATA_CONFIG.DATALOADER.POS_DATA_DIM
+        # self.pos_enc = cont.PositionalEncoder(max_freq=100000,
+        #                                       feat_size=feat_size,
+        #                                       dimensionality=3)
 
+
+        ###########################################
         self.evaluator = PanopticKittiEvaluator(cfg=cfg)
-        # self.sem_loss_lovasz = lovasz_losses.lovasz_softmax
-        # self.sem_loss = torch.nn.CrossEntropyLoss(ignore_index=self.ignore_label)  #modify
         self.ins_loss = SupConLoss(temperature=0.1)          # modify
-
+        self.val_loss = np.float(0)
+        self.val_num = 0
+        # self.linearNet = blocks.LinearNet(cfg)
 
 
     def get_pq(self):
@@ -59,17 +73,20 @@ class UNet(LightningModule):
 
         return sem_pred, ins_pred
 
+
     def forward(self, x):
 
-        coordinates, voxel_features = self.voxel_feature_extractor(x)
-        encoding, skips = self.encoder(voxel_features, coordinates, len(x['grid'])) ## modify
-        semantic_feat, instance_feat = self.decoder(encoding, skips)
+        coordinates, voxel_features = self.voxel_feature_extractor(x)   # torch.Size([49315, 16])
+        # voxel_features = self.sparse_tensor(coordinates, voxel_features)
+        encoding, skips = self.encoder(voxel_features, coordinates, len(x['grid'])) ## torch.Size([4790, 512])
+
+        semantic_feat, instance_feat = self.decoder(encoding, skips)            # torch.Size([49315, 128])
+        # instance_feat =  self.linearNet(instance_feat.features)
         semantic_logits = self.semantic_head(semantic_feat)
         predicted_offsets, pt_ins_feat = self.instance_head(instance_feat, x)
 
         return semantic_logits, predicted_offsets, pt_ins_feat, instance_feat
 
-    #############################################################
 
     def configure_optimizers(self):  # need to modify?
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad,
@@ -85,7 +102,7 @@ class UNet(LightningModule):
         ids = ids[indices]
         ins_num = 0
         for i in range(len(ids)): #iterate over all instances
-            if ins_num > 8000:
+            if ins_num > 20000:
                 break
             if sorted_n_ids[0] < 30*pos_scans:
                 pt_idx = torch.where(pos_labels==ids[i])[0]
@@ -95,8 +112,8 @@ class UNet(LightningModule):
                 _pos_labels.append(p_labels)
                 _feats.append(feat)
                 _sem_labels.append(s_labels)
-                break
-            if sorted_n_ids[i] >= 30*pos_scans and sorted_n_ids[i] < 800: #filter too small instances 30
+                # break
+            elif sorted_n_ids[i] >= 30*pos_scans and sorted_n_ids[i] < 1000: #filter too small instances 30
                 ins_num += sorted_n_ids[i]
                 pt_idx = torch.where(pos_labels==ids[i])[0]
                 feat = norm_features[pt_idx]
@@ -105,10 +122,33 @@ class UNet(LightningModule):
                 _pos_labels.append(p_labels)
                 _feats.append(feat)
                 _sem_labels.append(s_labels)
-            elif sorted_n_ids[i] >= 800:
-                ins_num += 800
+            elif sorted_n_ids[i] >= 1000 and sorted_n_ids[i] <= 4000:
+                pick_num = int(sorted_n_ids[i]*0.8)
+                ins_num += pick_num
                 pt_idx = torch.where(pos_labels==ids[i])[0]
-                pt_idx = pt_idx[torch.randperm(sorted_n_ids[i])][:800]
+                pt_idx = pt_idx[torch.randperm(sorted_n_ids[i])][:pick_num]
+                feat = norm_features[pt_idx]
+                s_labels = sem_labels[pt_idx]
+                p_labels = pos_labels[pt_idx]
+                _pos_labels.append(p_labels)
+                _feats.append(feat)
+                _sem_labels.append(s_labels)
+            elif sorted_n_ids[i] > 4000 and sorted_n_ids[i] <= 8000:
+                pick_num = int(sorted_n_ids[i]*0.5)
+                ins_num += pick_num
+                pt_idx = torch.where(pos_labels==ids[i])[0]
+                pt_idx = pt_idx[torch.randperm(sorted_n_ids[i])][:pick_num]
+                feat = norm_features[pt_idx]
+                s_labels = sem_labels[pt_idx]
+                p_labels = pos_labels[pt_idx]
+                _pos_labels.append(p_labels)
+                _feats.append(feat)
+                _sem_labels.append(s_labels)
+            elif sorted_n_ids[i] > 8000:
+                pick_num = 4000
+                ins_num += pick_num
+                pt_idx = torch.where(pos_labels==ids[i])[0]
+                pt_idx = pt_idx[torch.randperm(sorted_n_ids[i])][:pick_num]
                 feat = norm_features[pt_idx]
                 s_labels = sem_labels[pt_idx]
                 p_labels = pos_labels[pt_idx]
@@ -131,7 +171,7 @@ class UNet(LightningModule):
                       for i in x['pt_ins_labels']]
         pos_labels = (torch.cat([i for i in pos_labels])) #single tensor    torch.Size([622523, 1])
         # norm_features = F.normalize(features)
-        pt_raw_feat = pred.feat_voxel2point(features,x)
+        pt_raw_feat = pred.feat_voxel2point(features, x)
         pt_raw_feat = (torch.cat([i for i in pt_raw_feat])).cuda()                # torch.Size([622523, 128])
         norm_features = F.normalize(pt_raw_feat)
         ## clear ins == 0
@@ -143,20 +183,10 @@ class UNet(LightningModule):
         norm_features = norm_features[valid]
         # idx = torch.nonzero(pos_labels)
         feats, pos_l, sem_l = self.group_instances(norm_features, pos_labels, sem_labels, pos_scans)
-        if feats == []:
-            ins_loss = torch.tensor(0).to('cuda')
-            print('no instance')
-        else:
-            ins_loss = self.ins_loss(feats, pos_l, sem_l)         # torch.Size([13242, 128])
+        ins_loss = self.ins_loss(feats, pos_l, sem_l)         # torch.Size([13242, 128])
         loss['unet_loss'] = ins_loss
         return loss
 
-
-    ####################################
-
-    
-
-    ########################################
 
     def training_step(self, batch, batch_idx):
 
@@ -164,7 +194,7 @@ class UNet(LightningModule):
         semantic_logits, predicted_offsets, pt_ins_feat, instance_feat = self(x)
 
         loss = self.getLoss(x, instance_feat)
-        self.log('train/unet_loss', loss['unet_loss'])
+        self.log('training_loss', loss['unet_loss'])
         torch.cuda.empty_cache()
 
         return loss['unet_loss']
@@ -172,27 +202,90 @@ class UNet(LightningModule):
     
     def validation_step(self, batch, batch_idx):
         x = batch
-        sem_logits, pred_offsets, pt_ins_feat, raw_features = self(x)
-        sem_pred, ins_pred = self.merge_predictions(x, sem_logits, pred_offsets, pt_ins_feat)
-        self.evaluator.update(sem_pred, ins_pred, x)
+        instance_features = self(x)
+        # pt_raw_feat = pred.feat_voxel2point(instance_features, x)[0]    # torch.Size([123389, 128])
+        loss = self.getLoss(x, instance_features)
+        self.val_loss += loss['unet_loss']
+        self.val_num += 1
+        self.log('val_loss', loss['unet_loss'])
         torch.cuda.empty_cache()
+        # sem_pred, ins_pred = self.merge_predictions(x, sem_logits, pred_offsets, pt_ins_feat)
+        # self.evaluator.update(sem_pred, ins_pred, x)
+        # valid = x['pt_valid']
+        # ins_pred = x['pt_ins_pred']
+        # sem_pred = x['pt_sem_pred']
+        # ins_ids = x['ids']
+        # n_instances = [len(item) for item in x['ids']]
+        # pt_raw_feat = pt_raw_feat[valid]                # torch.Size([1715, 128])
+        # ins_feat = torch.split(pt_raw_feat, n_instances)  # torch.Size([49315, 128]) # torch.Size([123389, 128])
+        # # batched_ins_feat = torch.split(instance_features, n_instances)
+        # points = x['pt_coors']
+        # features = x['pt_features']
+        # poses = x['pose']
+        # ins_pread = self.AssocModule.associate(ins_pred, ins_feat, points,
+        #                                        features, poses, ins_ids)
+        # self.evaluator4D.update(sem_pred, ins_pred, x)
+
+        
 
 
     def validation_epoch_end(self, outputs):
-        # self.evaluator4D.calculate_metrics()
-        # AQ = self.evaluator4D.get_mean_aq()
-        # self.log('AQ',AQ)
-
-        # self.AssocModule.clear()
-        # self.evaluator4D.clear()
-        return
-
+        val_loss = self.val_loss / self.val_num 
+        self.val_loss = 0
+        self.val_num = 0
+        self.log('val_loss',val_loss)
+        
 
     def test_step(self, batch, batch_idx):
         x = batch
-        sem_logits, pred_offsets, pt_ins_feat, raw_features = self(x)
+        sem_logits, pred_offsets, pt_ins_feat, instance_feat = self(x)
+        raw_features = instance_feat
+        # sem_logits = pred_offsets = pt_ins_feat = []        # mmmm
         sem_pred, ins_pred = self.merge_predictions(x, sem_logits,
                                                     pred_offsets, pt_ins_feat)
+        
+        # pt_raw_feat = pred.feat_voxel2point(raw_features, x)
+        # pt_raw_feat = (torch.cat([i for i in pt_raw_feat])).cuda()                # torch.Size([622523, 128])
+        
+        # # norm_features = F.normalize(pt_raw_feat)
+        # norm_features = pt_raw_feat
+        
+        # valid = x['pt_valid']
+        # valid = (np.concatenate([i for i in valid]))
+        # norm_features = norm_features[valid].cpu().numpy()
+        # pt_raw_feat = pt_raw_feat[valid]
+        # pos_labels = [torch.from_numpy(i).type(torch.LongTensor).cuda()
+        #               for i in x['pt_ins_labels']]
+        # pos_labels = (torch.cat([i for i in pos_labels])) #single tensor    torch.Size([622523, 1])
+        # labels_true = np.squeeze(pos_labels[valid].cpu().numpy())
+        # # labels_true = labels_true[valid]
+        # pt_ins_pred = [torch.from_numpy(i).type(torch.LongTensor).cuda()
+        #               for i in x['pt_ins_pred']]
+        # pt_ins_pred = (torch.cat([i for i in pt_ins_pred]))
+        # pt_ins_pred = pt_ins_pred[valid].cpu().numpy()
+
+        # # tsne = TSNE(n_components=3, init='pca', random_state=501)
+        # # tsne_feats = tsne.fit_transform(norm_features)
+        # N = len(np.unique(pt_ins_pred))
+        # dpgmm = BayesianGaussianMixture(n_components= 15, random_state=42).fit(norm_features)
+        # # hdb = hdbscan.HDBSCAN(min_cluster_size=30).fit(norm_features)
+        # # db = DBSCAN(eps=5, min_samples=3).fit(norm_features)
+        # dpgmm.predict(norm_features)
+
+        # km = KMeans(n_clusters=15, random_state=0).fit(norm_features)
+        # labels = km.labels_
+
+        # labels = db.labels_
+        # core_samples_mask = np.zeros_like(db.labels_, dtype=bool)  # 设置一个样本个数长度的全false向量
+        # core_samples_mask[db.core_sample_indices_] = True #将核心样本部分设置为true
+        # n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
+        # # print('估计的聚类个数为: %d' % n_clusters_)
+        # print("同质性: %0.3f" % metrics.homogeneity_score(labels_true, labels))  # 每个群集只包含单个类的成员。
+        # print("完整性: %0.3f" % metrics.completeness_score(labels_true, labels))  # 给定类的所有成员都分配给同一个群集。
+        # print("V-measure: %0.3f" % metrics.v_measure_score(labels_true, labels))  # 同质性和完整性的调和平均
+        # print("调整兰德指数: %0.3f" % metrics.adjusted_rand_score(labels_true, labels))
+        # print("调整互信息: %0.3f" % metrics.adjusted_mutual_info_score(labels_true, labels))
+        # print("轮廓系数: %0.3f" % metrics.silhouette_score(tsne_feats, labels))
 
         if 'RESULTS_DIR' in self.cfg:
             results_dir = self.cfg.RESULTS_DIR
@@ -329,3 +422,4 @@ class CylinderInstanceHead(nn.Module):
             pt_pred_offsets_list.append(self.offset_linear(self.offset(torch.cat([pt_ins_fea,torch.from_numpy(xyz[batch_i]).cuda()],dim=1))))
 
         return pt_pred_offsets_list, pt_ins_fea_list
+

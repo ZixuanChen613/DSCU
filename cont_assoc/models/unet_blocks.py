@@ -385,6 +385,28 @@ class SparseConvBlock(nn.Module):
     def forward(self, x):
         return self.layer(x)
 
+class LinearNet(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        in_dim = 128
+        # out_dim = 512
+        self.final = nn.Sequential(
+            nn.BatchNorm1d(in_dim),
+
+            nn.Linear(128, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+
+            nn.Linear(256, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+
+            nn.Linear(512, 512)
+        )
+
+    def forward(self, x):
+        return self.final(x)
+
 def split_sparse(sparse, n_ins):
     #n_ins = [7,9]
     all_batched = []

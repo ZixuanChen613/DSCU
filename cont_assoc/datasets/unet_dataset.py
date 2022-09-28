@@ -36,7 +36,7 @@ class SemanticKittiModule(LightningDataModule):
         train_pt_dataset = SemanticKitti(
             self.cfg.DATA_CONFIG.DATASET_PATH + '/sequences/',
             self.cfg.DATA_CONFIG.UNET_TRAIN_PATH + '/sequences/',
-            pos_scans = 2,
+            pos_scans = self.cfg.TRAIN.POS_SCANS,       # 2
             split = train_split,
             r_pos_scans = self.cfg.TRAIN.RANDOM_POS_SCANS
         )
@@ -176,6 +176,9 @@ class SemanticKitti(Dataset):
         ins_labels = []
         valid = []
         new_feats = []
+        ids = []
+        pt_sem_preds = []#for validation predictions
+        pt_ins_preds = []#for validation predictions
 
         if self.split == 'test':
             raw_data = np.fromfile(self.im_idx[index], dtype=np.float32).reshape((-1, 4))
@@ -267,6 +270,7 @@ class SemanticKitti(Dataset):
                     # _feats = data[6]
 
                     _new_feats = data[7]
+                    _ids = data[2]
 
 
                     # if self.aug is not None and self.aug.DO_AUG == True:
@@ -285,7 +289,10 @@ class SemanticKitti(Dataset):
                     ins_labels = np.append(ins_labels ,_ins_labels.astype(np.int32))
                     valid = np.append(valid, _valid)
                     new_feats.append(_new_feats)
-
+                    if data.shape[0] == 13:
+                        ids.extend(_ids)
+                        pt_sem_pred = data[8]
+                        pt_ins_pred = data[9]
 
                     # prev_coors = _coors
                     # prev_coors_T = _coors_T
@@ -300,6 +307,11 @@ class SemanticKitti(Dataset):
         new_feats = np.concatenate(new_feats, axis=0)
         data_tuple += (new_feats,) #feats   [m*Ni, 128]
         data_tuple += (pos_scans,)
+        data_tuple += (ids,)
+
+        if data.shape[0] == 13:
+            data_tuple += (pt_sem_pred,)
+            data_tuple += (pt_ins_pred,)
         
         return data_tuple
 
@@ -323,11 +335,17 @@ class CylindricalSemanticKitti(Dataset):
 
   def __getitem__(self, index):
         data = self.point_cloud_dataset[index]
-        if len(data) == 8:
-            xyz,labels,sig,ins_labels,valid,pcd_fname,feats,pos_scans = data
+        if len(data) == 9:
+            xyz,labels,sig,ins_labels,valid,pcd_fname,feats,pos_scans,ids = data
             if len(sig.shape) == 2: sig = np.squeeze(sig)
-        elif len(data) == 9:
-            xyz,labels,sig,ins_labels,valid,pcd_fname,pose,feats,pos_scans = data
+        elif len(data) == 10:
+            xyz,labels,sig,ins_labels,valid,pcd_fname,pose,feats,pos_scans,ids = data
+            if len(sig.shape) == 2: sig = np.squeeze(sig)
+        elif len(data) == 11:
+            xyz,labels,sig,ins_labels,valid,pcd_fname,feats,ids,pt_sem_pred,pt_ins_pred = data
+            if len(sig.shape) == 2: sig = np.squeeze(sig)
+        elif len(data) == 12:
+            xyz,labels,sig,ins_labels,valid,pcd_fname,pose,feats,pos_scans,ids,pt_sem_pred,pt_ins_pred = data
             if len(sig.shape) == 2: sig = np.squeeze(sig)
         else: raise Exception('Return invalid data tuple')
 
@@ -384,11 +402,17 @@ class CylindricalSemanticKitti(Dataset):
         offsets = np.zeros([xyz.shape[0], 3], dtype=np.float32)
         offsets = nb_aggregate_pointwise_center_offset(offsets, xyz, ins_labels, self.center_type)
 
-        if len(data) == 8:
-            data_tuple += (ins_labels, offsets, valid, xyz, pcd_fname, feats, pos_scans) # plus (point-wise instance label, point-wise center offset)
-
         if len(data) == 9:
-            data_tuple += (ins_labels, offsets, valid, xyz, pcd_fname, pose, feats, pos_scans) # plus (point-wise instance label, point-wise center offset)
+            data_tuple += (ins_labels, offsets, valid, xyz, pcd_fname, feats, pos_scans, ids) # plus (point-wise instance label, point-wise center offset)
+
+        elif len(data) == 10:
+            data_tuple += (ins_labels, offsets, valid, xyz, pcd_fname, pose, feats, pos_scans, ids) # plus (point-wise instance label, point-wise center offset)
+
+        elif len(data) == 11:
+            data_tuple += (ins_labels, offsets, valid, xyz, pcd_fname, feats, pos_scans, ids, pt_sem_pred, pt_ins_pred) # plus (point-wise instance label, point-wise center offset)
+
+        elif len(data) == 12:
+            data_tuple += (ins_labels, offsets, valid, xyz, pcd_fname, pose, feats, pos_scans, ids, pt_sem_pred, pt_ins_pred) 
 
         return data_tuple
 
@@ -454,12 +478,11 @@ def collate_fn_BEV(data): # stack along batch dimension
     pt_cart_xyz = [d[9] for d in data]                           # point-wise cart coor
     filename = [d[10] for d in data]                             # scan filename
     pose = [d[11] for d in data]                                 # pose of the scan
-    feats = [d[12] for d in data]                               # instance feats (valid)
+    feats = [d[12] for d in data]                                # instance feats (valid)
     pos_scans = [d[13] for d in data]
+    ids = [d[14] for d in data]
 
-
-    
-    return {
+    out_dict = {
         'vox_coor': torch.from_numpy(data2stack),
         'vox_labels': label2stack,
         'grid': grid_ind_stack,
@@ -473,8 +496,17 @@ def collate_fn_BEV(data): # stack along batch dimension
         'pcd_fname': filename,
         'pose': pose,
         'feats': feats,                          ##########
-        'pos_scans': pos_scans
-    }
+        'pos_scans': pos_scans,
+        'ids': ids
+        }
+
+    if len(data[0]) == 17:
+        pt_ins_pred = [d[15] for d in data]
+        pt_labs = [d[16] for d in data]
+        out_dict['pt_sem_pred'] = pt_ins_pred                #per point sem label
+        out_dict['pt_ins_pred'] = pt_labs    #per point instance label
+
+    return out_dict
 
 # Transformations between Cartesian and Polar coordinates
 def cart2polar(input_xyz):
