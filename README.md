@@ -1,8 +1,7 @@
 # Contrastive Instance Association for 4D Panoptic Segmentation using Sequences of 3D LiDAR Scans
 
-![](pics/overview.png)
+![](pics/DSCU.png)
 
-This repository contains the implementation of the paper [Contrastive Instance Association for 4D Panoptic Segmentation using Sequences of 3D LiDAR Scans](https://www.ipb.uni-bonn.de/wp-content/papercite-data/pdf/marcuzzi2022ral.pdf).
 
 The approach builds on top of an arbitrary single-scan Panoptic Segmentation network and extends it to the temporal domain by associating instances across time using our Contrastive Aggregation network that leverages the point-wise features from the panoptic network.
 
@@ -43,8 +42,6 @@ Download the [SemanticKITTI](http://www.semantic-kitti.org/dataset.html#overview
 # Pretrained models
 * Pretrained [Panoptic Segmentation model](https://www.ipb.uni-bonn.de/html/projects/contrastive_instance_association/panoptic_pq_564.pth).
 
-* Pretrained [Contrastive Aggregation model](https://www.ipb.uni-bonn.de/html/projects/contrastive_instance_association/aggregation_aq_724.ckpt).
-
 # Reproducing the results
 Run the evaluation script, which will compute the metrics for the validation set:
 
@@ -79,22 +76,7 @@ python train_aggregation.py
 ```
 All the configurations are in the `config/contrastive_instances.yaml` file.
 
-# Citation
 
-If you use this repo, please cite as :
-
-```
-@article{marcuzzi2022ral,
-  author = {Rodrigo Marcuzzi and Lucas Nunes and Louis Wiesmann and Ignacio Vizzo and Jens Behley and Cyrill Stachniss},
-  title = {{Contrastive Instance Association for 4D Panoptic Segmentation \\ using Sequences of 3D LiDAR Scans}},
-  journal = {IEEE Robotics and Automation Letters (RA-L)},
-  year = 2022,
-  volume={7},
-  number={2},
-  pages={1550-1557},
-}
-
-```
 
 # Acknowledgments
 
@@ -102,7 +84,4 @@ The Panoptic Segmentation Network used in this repo is [DS-Net](https://github.c
 
 The loss function it's a modified version of [SupContrast](https://github.com/HobbitLong/SupContrast).
 
-# License
-Copyright 2022, Rodrigo Marcuzzi, Cyrill Stachniss, Photogrammetry and Robotics Lab, University of Bonn.
 
-This project is free software made available under the MIT License. For details see the LICENSE file.
