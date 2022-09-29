@@ -1,9 +1,8 @@
-# Contrastive Instance Association for 4D Panoptic Segmentation using Sequences of 3D LiDAR Scans
+# Towards Contrastive Learning-Based Instance Features for 4D Panoptic LiDAR Segmentation
 
 ![](pics/DSCU.png)
 
-
-The approach builds on top of an arbitrary single-scan Panoptic Segmentation network and extends it to the temporal domain by associating instances across time using our Contrastive Aggregation network that leverages the point-wise features from the panoptic network.
+The approach builds on a single-scan Panoptic segmentation network and learns point-wise features by using our contrastive U-shaped network, then we compute instance-wise features, finally we use the association module to obtain consistent instance IDs across time.
 
 # Requirements
 
