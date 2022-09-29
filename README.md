@@ -10,8 +10,10 @@ The approach builds on a single-scan Panoptic segmentation network and learns po
 ```
 pip3 install -U -e .
 ```
-* Install torch -> pip install torch==1.10.0+cu111 torchvision==0.11.0+cu111 torchaudio==0.10.0 -f https://download.pytorch.org/whl/torch_stable.html
-
+* Install torch -> 
+```
+pip install torch==1.10.0+cu111 torchvision==0.11.0+cu111 torchaudio==0.10.0 -f https://download.pytorch.org/whl/torch_stable.html
+```
 * Install packages in [requirements.txt](requirements.txt).
 
 * Install [MinkowskiEngine](https://nvidia.github.io/MinkowskiEngine/overview.html#installation).
