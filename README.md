@@ -47,7 +47,7 @@ Download the [SemanticKITTI](http://www.semantic-kitti.org/dataset.html#overview
 Run the evaluation script, which will compute the metrics for the validation set:
 
 ```
-python evaluate_4dpanoptic.py --ckpt_ps path/to/panoptic_weights --ckpt_ag path/to/aggregation_weights 
+python evaluate_dscu_without_pos.py --ckpt_ps path/to/panoptic_weights --ckpt_ag path/to/cunet_weights 
 ```
 # Training
 ## Create instances dataset 
@@ -68,15 +68,14 @@ python save_panoptic_features.py --ckpt path/to/panoptic_weights --save_val_pred
 
 This will create a directory in `cont_assoc/data/validation_predictions` with `npy` files for each scan of the validation sequence containing the semantic and instance predictions for each point. 
 
-## Train Contrastive Aggregation Network
+## Train Contrastive U-Shape Network
 
-Once the instance dataset and the validation predictions are generated, we're ready to train the Contrastive Aggregation Network running:
+Once the instance dataset and the validation predictions are generated, we're ready to train the Contrastive U-Shape Network running:
 
 ```
-python train_aggregation.py 
+python train_unet_without_pos.py 
 ```
-All the configurations are in the `config/contrastive_instances.yaml` file.
-
+All the configurations are in the `config/u_net.yaml` file.
 
 
 # Acknowledgments
