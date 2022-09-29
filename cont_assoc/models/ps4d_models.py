@@ -1,3 +1,7 @@
+"""
+Copyright 2022, Rodrigo Marcuzzi, Cyrill Stachniss, Photogrammetry and Robotics Lab, 
+University of Bonn.
+"""
 import numpy as np
 import spconv
 import torch

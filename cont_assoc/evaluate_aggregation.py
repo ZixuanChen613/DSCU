@@ -1,3 +1,7 @@
+"""
+Copyright 2022, Rodrigo Marcuzzi, Cyrill Stachniss, Photogrammetry and Robotics Lab, 
+University of Bonn.
+"""
 import click
 import cont_assoc.datasets.ins_feat_dataset as ins_dataset
 import cont_assoc.models.contrastive_models as models

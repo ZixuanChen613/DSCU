@@ -1,5 +1,7 @@
-# import pdb
-# pdb.set_trace()
+"""
+Copyright 2022, Rodrigo Marcuzzi, Cyrill Stachniss, Photogrammetry and Robotics Lab, 
+University of Bonn.
+"""
 import MinkowskiEngine as ME
 import numpy as np
 import torch

@@ -1,3 +1,7 @@
+"""
+Copyright 2022, Rodrigo Marcuzzi, Cyrill Stachniss, Photogrammetry and Robotics Lab, 
+University of Bonn.
+"""
 import click
 import cont_assoc.datasets.kitti_dataset as kitti_dataset
 import cont_assoc.models.ps4d_models as models
