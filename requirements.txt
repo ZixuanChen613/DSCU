@@ -4,11 +4,11 @@ click==7.1.2
 easydict==1.9                                                                   
 filterpy==1.4.5                                                                 
 numba==0.53.0                                                                  
-numpy==1.19.5                                                                   
+numpy==1.21.6                                                                  
 pytorch_lightning==1.5.9                                                        
 scikit_learn==1.0.2 
 scipy==1.5.0                                                                    
 #spconv==1.2.1                                                                   
-# torch==1.9.0                                                                    
+# torch==1.10.0+cu111                                                                   
 torch_scatter==2.0.5
 tqdm==4.48.2                                                                    

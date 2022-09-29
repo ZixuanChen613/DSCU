@@ -27,7 +27,7 @@ class UNet(LightningModule):
 
         self.voxel_feature_extractor = blocks.VoxelFeatureExtractor(cfg)          
 
-        self.pos_cunet = PosCUnet(cfg)
+        self.pos_unet = PosCUnet(cfg)
         self.ins_loss = SupConLoss(temperature=0.1)        
         self.val_loss = np.float(0)
         self.val_num = 0
@@ -39,7 +39,7 @@ class UNet(LightningModule):
         weights = cfg.TRACKING.ASSOCIATION_WEIGHTS
         thresholds = cfg.TRACKING.ASSOCIATION_THRESHOLDS
         use_poses = cfg.MODEL.USE_POSES
-        self.AssocModule = AssociationModule(weights, thresholds, self.pos_cunet,
+        self.AssocModule = AssociationModule(weights, thresholds, self.pos_unet,
                                              self.pos_enc, use_poses, self.voxel_feature_extractor, cfg)
 
 
@@ -159,7 +159,7 @@ class UNet(LightningModule):
         coordinates, voxel_features = self.voxel_feature_extractor(x)
         voxel_features_pos = self.merge_pos([coordinates[:,1:]], [voxel_features])[0]
         batch_size = len(x['grid'])
-        ins_features = self.pos_cunet(coordinates, voxel_features_pos, batch_size)                    
+        ins_features = self.pos_unet(coordinates, voxel_features_pos, batch_size)                    
 
         return ins_features
 
