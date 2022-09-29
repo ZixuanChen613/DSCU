@@ -59,7 +59,7 @@ Since we use a frozen Panoptic Segmentation Network, to avoid running the forwar
 python save_panoptic_features.py --ckpt path/to/panoptic_weights
 ```
 
-This will create a directory in `cont_assoc/data/instance_features` with the same structure as Kitti but containing, for each sequence of the train set, `npy` files containing the instance points, labels and features for each scan. 
+This will create a directory in `folder_path/ds_net/instance_features` with the same structure as Kitti but containing, for each sequence of the train set, `npy` files containing the all points, labels and features for each scan. 
 
 ## Save validation predictions
 To get the 4D Panoptic Segmentation performance for the validation step during training, we save the full predictions for the validation set (sequence 08) running:
@@ -68,7 +68,7 @@ To get the 4D Panoptic Segmentation performance for the validation step during t
 python save_panoptic_features.py --ckpt path/to/panoptic_weights --save_val_pred
 ```
 
-This will create a directory in `cont_assoc/data/validation_predictions` with `npy` files for each scan of the validation sequence containing the semantic and instance predictions for each point. 
+This will create a directory in `folder_path/ds_net/validation_predictions` with `npy` files for each scan of the validation sequence containing the semantic predictions, instance predictions for each point, and all point features. 
 
 ## Train Contrastive U-Shape Network
 
